@@ -21,11 +21,11 @@ jobs:
           fi
 
       - name: Generate Xcode Project
-        run: cd ios && xcodegen generate
+        run: cd 采白端口/ios && xcodegen generate
 
       - name: Build IPA
         run: |
-          cd ios
+          cd 采白端口/ios
           xcodebuild -project CaiBaiVPN.xcodeproj \
             -scheme CaiBaiVPN \
             -configuration Release \
@@ -37,5 +37,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: CaiBaiVPN-IPA
-          path: ios/build/Release-iphoneos/*.ipa
+          path: 采白端口/ios/build/Release-iphoneos/*.ipa
           retention-days: 7
