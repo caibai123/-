@@ -142,7 +142,7 @@ class SOCKS5Client: NSObject {
         }
     }
 
-    private func handleStreamEvent(_ stream: Stream) {
+    private func handleStreamEvent(_ stream: Stream, eventCode: Stream.Event) {
         guard stream == inputStream || stream == outputStream else { return }
 
         if let error = stream.streamError {
@@ -152,8 +152,7 @@ class SOCKS5Client: NSObject {
         }
 
         if stream == outputStream {
-            let events = stream.eventCode
-            if events.contains(.openCompleted) {
+            if eventCode == .openCompleted {
                 if handshakeStep == 0 {
                     handshakeStep = 1
                     doHandshake()
@@ -162,9 +161,7 @@ class SOCKS5Client: NSObject {
         }
 
         if stream == inputStream {
-            let events = stream.eventCode
-
-            if events.contains(.hasBytesAvailable) {
+            if eventCode == .hasBytesAvailable {
                 var buffer = [UInt8](repeating: 0, count: 4096)
                 let bytesRead = inputStream?.read(&buffer, maxLength: buffer.count) ?? 0
 
@@ -177,12 +174,12 @@ class SOCKS5Client: NSObject {
                 }
             }
 
-            if events.contains(.errorOccurred) {
+            if eventCode == .errorOccurred {
                 cleanup()
                 callCompletion(with: SOCKS5Error.connectionFailed)
             }
 
-            if events.contains(.endEncountered) {
+            if eventCode == .endEncountered {
                 cleanup()
                 callCompletion(with: SOCKS5Error.connectionFailed)
             }
