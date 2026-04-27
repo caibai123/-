@@ -11,10 +11,22 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: Config.socks5Host)
 
-        settings.ipv4Settings = NEIPv4Settings(addresses: ["10.8.0.2"], subnetMasks: ["255.255.255.0"])
-        settings.ipv4Settings?.includedRoutes = []
+        let ipv4Settings = NEIPv4Settings(addresses: ["10.8.0.2"], subnetMasks: ["255.255.255.0"])
 
-        settings.dnsSettings = NEDNSSettings(servers: ["8.8.8.8", "8.8.4.4"])
+        let defaultRoute = NEIPv4Route.default()
+        defaultRoute.gatewayAddress = Config.socks5Host
+
+        let proxyRoute = NEIPv4Route(destinationAddress: Config.socks5Host, subnetMask: "255.255.255.255")
+        proxyRoute.gatewayAddress = Config.socks5Host
+
+        ipv4Settings.includedRoutes = [proxyRoute]
+        ipv4Settings.excludedRoutes = [defaultRoute]
+
+        settings.ipv4Settings = ipv4Settings
+
+        let dnsSettings = NEDNSSettings(servers: ["8.8.8.8"])
+        dnsSettings.matchDomains = [""]
+        settings.dnsSettings = dnsSettings
 
         settings.mtu = 1400
 
@@ -80,7 +92,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
         if ipProtocol == 6 {
             let tcpHeaderLength = ipHeaderLength + 20
-            guard packet.count > tcpHeaderLength + 40 else { return nil }
+            guard packet.count > tcpHeaderLength + 4 else { return nil }
 
             let destIP = String(format: "%d.%d.%d.%d",
                 packet[16], packet[17], packet[18], packet[19])
@@ -93,20 +105,12 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
             if destPort == 80 || destPort == 443 {
                 if packet.count > tcpHeaderLength + 40 {
-                    var offset = tcpHeaderLength + 40
-                    if packet.count > offset && (packet[offset] & 0x40) != 0 {
-                        let dataOffset = Int(packet[tcpHeaderLength + 12] >> 4) * 4
-                        offset += dataOffset
-                    }
-
-                    if packet.count > offset + 4 {
-                        let httpData = packet.subdata(in: offset..<min(offset + 200, packet.count))
-                        if let httpString = String(data: httpData, encoding: .utf8) {
-                            if let hostRange = httpString.range(of: "Host: ", options: .caseInsensitive) {
-                                let start = hostRange.upperBound
-                                if let end = httpString[start...].firstIndex(of: "\r") {
-                                    return String(httpString[start..<end]).trimmingCharacters(in: .whitespaces)
-                                }
+                    let httpData = packet.subdata(in: tcpHeaderLength + 40..<min(tcpHeaderLength + 200, packet.count))
+                    if let httpString = String(data: httpData, encoding: .utf8) {
+                        if let hostRange = httpString.range(of: "Host: ", options: .caseInsensitive) {
+                            let start = hostRange.upperBound
+                            if let end = httpString[start...].firstIndex(of: "\r") {
+                                return String(httpString[start..<end]).trimmingCharacters(in: .whitespaces)
                             }
                         }
                     }
