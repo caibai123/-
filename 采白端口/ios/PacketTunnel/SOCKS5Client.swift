@@ -1,7 +1,7 @@
 import Foundation
 import NetworkExtension
 
-class SOCKS5Client {
+class SOCKS5Client: NSObject {
     private let host: String
     private let port: UInt16
     private let username: String
@@ -18,6 +18,7 @@ class SOCKS5Client {
         self.port = port
         self.username = username
         self.password = password
+        super.init()
     }
 
     func connect(completion: @escaping (Error?) -> Void) {
