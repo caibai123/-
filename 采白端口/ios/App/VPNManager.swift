@@ -7,6 +7,7 @@ class VPNManager: ObservableObject {
     @Published var isConnected = false
     @Published var isConnecting = false
     @Published var statusMessage = ""
+    @Published var lastError: String?
 
     private var manager: NETunnelProviderManager?
 
@@ -93,6 +94,7 @@ class VPNManager: ObservableObject {
                 self.isConnected = true
                 self.isConnecting = false
                 self.statusMessage = "VPN 已激活"
+                self.lastError = nil
             case .connecting:
                 self.isConnected = false
                 self.isConnecting = true
@@ -103,11 +105,19 @@ class VPNManager: ObservableObject {
             case .disconnected:
                 self.isConnected = false
                 self.isConnecting = false
-                self.statusMessage = "未连接"
+                if let err = self.lastError, !err.isEmpty {
+                    self.statusMessage = err
+                } else {
+                    self.statusMessage = "未连接"
+                }
             case .invalid:
                 self.isConnected = false
                 self.isConnecting = false
-                self.statusMessage = "配置无效"
+                if let err = self.lastError, !err.isEmpty {
+                    self.statusMessage = err
+                } else {
+                    self.statusMessage = "配置无效"
+                }
             case .reasserting:
                 self.isConnecting = true
             @unknown default:
@@ -132,12 +142,14 @@ class VPNManager: ObservableObject {
         }
 
         isConnecting = true
+        lastError = nil
         statusMessage = "正在连接..."
 
         manager.saveToPreferences { [weak self] error in
             DispatchQueue.main.async {
                 if let error = error {
-                    self?.statusMessage = "保存配置失败: \(error.localizedDescription)"
+                    self?.lastError = "保存配置失败: \(error.localizedDescription)"
+                    self?.statusMessage = self?.lastError ?? ""
                     self?.isConnecting = false
                     return
                 }
@@ -145,15 +157,18 @@ class VPNManager: ObservableObject {
                 manager.loadFromPreferences { [weak self] error in
                     DispatchQueue.main.async {
                         if let error = error {
-                            self?.statusMessage = "加载配置失败: \(error.localizedDescription)"
+                            self?.lastError = "加载配置失败: \(error.localizedDescription)"
+                            self?.statusMessage = self?.lastError ?? ""
                             self?.isConnecting = false
                             return
                         }
 
                         do {
+                            self?.statusMessage = "正在启动隧道..."
                             try manager.connection.startVPNTunnel()
                         } catch {
-                            self?.statusMessage = "启动失败: \(error.localizedDescription)"
+                            self?.lastError = "启动失败: \(error.localizedDescription)"
+                            self?.statusMessage = self?.lastError ?? ""
                             self?.isConnecting = false
                         }
                     }
@@ -164,5 +179,25 @@ class VPNManager: ObservableObject {
 
     func disconnect() {
         manager?.connection.stopVPNTunnel()
+    }
+
+    func fetchTunnelLog(completion: @escaping (String) -> Void) {
+        guard let session = manager?.connection as? NETunnelProviderSession else {
+            completion("")
+            return
+        }
+
+        let message = "getLog".data(using: .utf8)!
+        do {
+            try session.sendProviderMessage(message) { response in
+                if let data = response, let log = String(data: data, encoding: .utf8) {
+                    completion(log)
+                } else {
+                    completion("")
+                }
+            }
+        } catch {
+            completion("")
+        }
     }
 }
