@@ -3,28 +3,35 @@ import NetworkExtension
 class PacketTunnelProvider: NEPacketTunnelProvider {
 
     private var socks5Client: SOCKS5Client?
-    private var pendingStartCompletion: ((Error?) -> Void)?
     private let proxyDomains = Config.proxyDomains
 
     override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
-        pendingStartCompletion = completionHandler
+        let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "10.0.0.1")
 
-        let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: Config.socks5Host)
-
-        let ipv4Settings = NEIPv4Settings(addresses: ["10.8.0.2"], subnetMasks: ["255.255.255.0"])
+        let ipv4Settings = NEIPv4Settings(addresses: ["10.0.0.2"], subnetMasks: ["255.255.255.0"])
 
         let defaultRoute = NEIPv4Route.default()
-        defaultRoute.gatewayAddress = Config.socks5Host
+        ipv4Settings.includedRoutes = [defaultRoute]
 
-        let proxyRoute = NEIPv4Route(destinationAddress: Config.socks5Host, subnetMask: "255.255.255.255")
-        proxyRoute.gatewayAddress = Config.socks5Host
-
-        ipv4Settings.includedRoutes = [proxyRoute]
-        ipv4Settings.excludedRoutes = [defaultRoute]
+        let localNetworks: [String] = [
+            "10.0.0.0/8",
+            "172.16.0.0/12",
+            "192.168.0.0/16",
+            "127.0.0.0/8",
+            "169.254.0.0/16"
+        ]
+        ipv4Settings.excludedRoutes = localNetworks.compactMap { cidr -> NEIPv4Route? in
+            let components = cidr.split(separator: "/")
+            guard components.count == 2,
+                  let prefix = Int(components[1]) else { return nil }
+            let mask = prefixToMask(prefix)
+            let route = NEIPv4Route(destinationAddress: String(components[0]), subnetMask: mask)
+            return route
+        }
 
         settings.ipv4Settings = ipv4Settings
 
-        let dnsSettings = NEDNSSettings(servers: ["8.8.8.8"])
+        let dnsSettings = NEDNSSettings(servers: ["8.8.8.8", "8.8.4.4"])
         dnsSettings.matchDomains = [""]
         settings.dnsSettings = dnsSettings
 
@@ -38,6 +45,15 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
             self?.startSOCKS5Tunnel(completionHandler: completionHandler)
         }
+    }
+
+    private func prefixToMask(_ prefix: Int) -> String {
+        let mask = prefix == 0 ? 0 : ~UInt32(0) << (32 - prefix)
+        let b1 = (mask >> 24) & 0xFF
+        let b2 = (mask >> 16) & 0xFF
+        let b3 = (mask >> 8) & 0xFF
+        let b4 = mask & 0xFF
+        return "\(b1).\(b2).\(b3).\(b4)"
     }
 
     private func startSOCKS5Tunnel(completionHandler: @escaping (Error?) -> Void) {
@@ -71,64 +87,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
         for (index, packet) in packets.enumerated() {
             let proto = protocols[index].int32Value
-
-            if let domain = extractDomainFromPacket(packet, proto: proto) {
-                if shouldProxyDomain(domain) {
-                    client.sendPacket(packet, proto: proto)
-                }
-            } else {
-                client.sendPacket(packet, proto: proto)
-            }
+            client.sendPacket(packet, proto: proto)
         }
-    }
-
-    private func extractDomainFromPacket(_ packet: Data, proto: Int32) -> String? {
-        guard packet.count > 20 else { return nil }
-
-        let ipHeaderLength = Int(packet[0] & 0x0F) * 4
-        guard packet.count > ipHeaderLength else { return nil }
-
-        let ipProtocol = packet[9]
-
-        if ipProtocol == 6 {
-            let tcpHeaderLength = ipHeaderLength + 20
-            guard packet.count > tcpHeaderLength + 4 else { return nil }
-
-            let destIP = String(format: "%d.%d.%d.%d",
-                packet[16], packet[17], packet[18], packet[19])
-
-            if destIP == Config.socks5Host {
-                return nil
-            }
-
-            let destPort = UInt16(packet[22]) << 8 | UInt16(packet[23])
-
-            if destPort == 80 || destPort == 443 {
-                if packet.count > tcpHeaderLength + 40 {
-                    let httpData = packet.subdata(in: tcpHeaderLength + 40..<min(tcpHeaderLength + 200, packet.count))
-                    if let httpString = String(data: httpData, encoding: .utf8) {
-                        if let hostRange = httpString.range(of: "Host: ", options: .caseInsensitive) {
-                            let start = hostRange.upperBound
-                            if let end = httpString[start...].firstIndex(of: "\r") {
-                                return String(httpString[start..<end]).trimmingCharacters(in: .whitespaces)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        return nil
-    }
-
-    private func shouldProxyDomain(_ domain: String) -> Bool {
-        let lowercased = domain.lowercased()
-        for proxyDomain in proxyDomains {
-            if lowercased == proxyDomain.lowercased() || lowercased.hasSuffix(".\(proxyDomain)") {
-                return true
-            }
-        }
-        return false
     }
 
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
