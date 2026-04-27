@@ -11,5 +11,5 @@ enum Config {
         "4399.com"
     ]
 
-    static let tunnelBundleIdentifier = "com.caibai.vpn.PacketTunnel"
+    static let tunnelBundleIdentifier = "app.silver2284.lemon5594.PacketTunnel"
 }
