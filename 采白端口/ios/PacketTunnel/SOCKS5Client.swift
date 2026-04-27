@@ -28,7 +28,7 @@ class SOCKS5Client: NSObject {
         CFStreamCreatePairWithSocketToHost(
             kCFAllocatorDefault,
             host as CFString,
-            port,
+            UInt32(port),
             &readStream,
             &writeStream
         )
