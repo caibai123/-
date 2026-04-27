@@ -281,7 +281,7 @@ class SOCKS5Client: NSObject {
         tcpData.append(contentsOf: proxyRequest)
         tcpData.append(contentsOf: packet)
 
-        tcpData.withUnsafeMutableBytes { buffer in
+        _ = tcpData.withUnsafeMutableBytes { buffer in
             output.write(buffer.bindMemory(to: UInt8.self).baseAddress!, maxLength: buffer.count)
         }
     }
@@ -293,6 +293,6 @@ class SOCKS5Client: NSObject {
 
 extension SOCKS5Client: StreamDelegate {
     func stream(_ aStream: Stream, handle eventCode: Stream.Event) {
-        handleStreamEvent(aStream)
+        handleStreamEvent(aStream, eventCode: eventCode)
     }
 }
