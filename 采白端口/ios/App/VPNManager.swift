@@ -24,6 +24,7 @@ class VPNManager: ObservableObject {
 
                 if let existing = managers?.first {
                     self?.manager = existing
+                    existing.isEnabled = true
                 } else {
                     self?.createManager()
                 }
@@ -35,53 +36,39 @@ class VPNManager: ObservableObject {
 
     private func createManager() {
         let manager = NETunnelProviderManager()
-        manager.localizedDescription = "采白端口 VPN"
+        manager.localizedDescription = "潘多拉 VPN"
 
         let tunnelProtocol = NETunnelProviderProtocol()
         tunnelProtocol.providerBundleIdentifier = Config.tunnelBundleIdentifier
         tunnelProtocol.serverAddress = Config.socks5Host
+        tunnelProtocol.providerConfiguration = [
+            "host": Config.socks5Host,
+            "port": Config.socks5Port,
+            "username": Config.socks5Username,
+            "password": Config.socks5Password,
+            "domains": Config.proxyDomains
+        ] as [String: Any]
 
         manager.protocolConfiguration = tunnelProtocol
         manager.isEnabled = true
 
         self.manager = manager
-    }
-
-    private func saveAndConnect() {
-        guard let manager = manager else { return }
 
         manager.saveToPreferences { [weak self] error in
-            DispatchQueue.main.async {
-                if let error = error {
+            if let error = error {
+                DispatchQueue.main.async {
                     self?.statusMessage = "保存配置失败: \(error.localizedDescription)"
-                    self?.isConnecting = false
-                    return
                 }
-
-                manager.loadFromPreferences { [weak self] error in
-                    DispatchQueue.main.async {
-                        if let error = error {
-                            self?.statusMessage = "加载配置失败: \(error.localizedDescription)"
-                            self?.isConnecting = false
-                            return
-                        }
-
-                        self?.startTunnel()
+                return
+            }
+            manager.loadFromPreferences { [weak self] error in
+                DispatchQueue.main.async {
+                    if let error = error {
+                        self?.statusMessage = "加载配置失败: \(error.localizedDescription)"
+                    } else {
+                        self?.statusMessage = "准备就绪"
                     }
                 }
-            }
-        }
-    }
-
-    private func startTunnel() {
-        guard let manager = manager else { return }
-
-        do {
-            try manager.connection.startVPNTunnel()
-        } catch {
-            DispatchQueue.main.async { [weak self] in
-                self?.statusMessage = "启动失败: \(error.localizedDescription)"
-                self?.isConnecting = false
             }
         }
     }
@@ -105,7 +92,7 @@ class VPNManager: ObservableObject {
             case .connected:
                 self.isConnected = true
                 self.isConnecting = false
-                self.statusMessage = "已连接"
+                self.statusMessage = "VPN 已激活"
             case .connecting:
                 self.isConnected = false
                 self.isConnecting = true
@@ -138,14 +125,41 @@ class VPNManager: ObservableObject {
     }
 
     func connect() {
+        guard let manager = manager else {
+            createManager()
+            isConnecting = true
+            return
+        }
+
         isConnecting = true
         statusMessage = "正在连接..."
 
-        if manager?.protocolConfiguration == nil {
-            createManager()
-        }
+        manager.saveToPreferences { [weak self] error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    self?.statusMessage = "保存配置失败: \(error.localizedDescription)"
+                    self?.isConnecting = false
+                    return
+                }
 
-        saveAndConnect()
+                manager.loadFromPreferences { [weak self] error in
+                    DispatchQueue.main.async {
+                        if let error = error {
+                            self?.statusMessage = "加载配置失败: \(error.localizedDescription)"
+                            self?.isConnecting = false
+                            return
+                        }
+
+                        do {
+                            try manager.connection.startVPNTunnel()
+                        } catch {
+                            self?.statusMessage = "启动失败: \(error.localizedDescription)"
+                            self?.isConnecting = false
+                        }
+                    }
+                }
+            }
+        }
     }
 
     func disconnect() {
