@@ -8,20 +8,11 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-15
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Install XcodeGen
-        run: |
-          if ! command -v xcodegen &> /dev/null; then
-            brew install xcodegen
-          fi
-
-      - name: Generate Xcode Project
-        run: cd 采白端口/ios && xcodegen generate
 
       - name: Build IPA
         run: |
